@@ -1,26 +1,26 @@
-# 
-# <https://github.com/KFERMercer/OpenWrt-CI>
-#
-# Copyright (C) 2019 P3TERX
-#
-# Copyright (C) 2020 KFERMercer
-#
 name: OpenWrt-CI
 
 on:
+  push:
+    branches: [ master ]   # 添加push触发编译
   schedule:
-    - cron: 0 20 * * *
+    - cron: '0 20 * * *'   # UTC时间20:00定时编译
 
 permissions:
   contents: read
 
 jobs:
-
   build_openwrt:
-
     name: Build OpenWrt Firmware
-
     runs-on: ubuntu-22.04
+    
+    # 添加环境变量配置区
+    env:
+      DEFAULT_IP: 192.168.50.1  # 自定义默认IP
+      DEFAULT_PWD: yourpassword # 自定义默认密码
+      TARGET: x86_64           # 编译目标架构
+      SUBTARGET: generic       # 子目标
+      PROFILE: generic         # 设备配置文件
 
     steps:
       - name: Space cleanup and Initialization environment
@@ -45,32 +45,65 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
-          # this might remove tools that are actually needed,
-          # if set to "true" but frees about 6 GB
           tool-cache: true
-          # all of these default to true, but feel free to set to
-          # "false" if necessary for your workflow
           android: true
           dotnet: true
           haskell: true
           large-packages: true
           swap-storage: true
 
-      - name: Update feeds
+      # ========== 自定义配置区域 ==========
+      - name: Apply custom configurations
         run: |
-          sed -i 's/#src-git helloworld/src-git helloworld/g' ./feeds.conf.default
+          # 1. 修改默认IP和密码
+          sed -i "s/192.168.1.1/${{ env.DEFAULT_IP }}/g" package/base-files/files/bin/config_generate
+          sed -i "s/password/${{ env.DEFAULT_PWD }}/g" package/base-files/files/bin/config_generate
+          
+          # 2. 添加常用插件源
+          echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall" >> feeds.conf.default
+          echo "src-git helloworld https://github.com/fw876/helloworld" >> feeds.conf.default
+          echo "src-git openclash https://github.com/vernesong/OpenClash" >> feeds.conf.default
+          
+          # 3. 更新feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          # 4. 创建预置配置文件目录
+          mkdir -p files/etc/config
 
-      - name: Generate configuration file
-        run: make defconfig
+      # ========== 自定义.config文件 ==========
+      - name: Apply custom .config
+        run: |
+          # 如果存在自定义配置文件则应用
+          if [ -f "custom.config" ]; then
+            cp custom.config .config
+          else
+            # 生成默认配置
+            make defconfig
+            
+            # 添加基本配置选项
+            cat >> .config <<EOF
+CONFIG_TARGET_${{ env.TARGET }}=y
+CONFIG_TARGET_${{ env.TARGET }}_${{ env.SUBTARGET }}=y
+CONFIG_TARGET_${{ env.TARGET }}_${{ env.SUBTARGET }}_${{ env.PROFILE }}=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_luci-theme-argon=y
+EOF
+          fi
+          
+          # 应用配置
+          make defconfig
 
       - name: Download packages
         run: make download -j16
 
+      # ========== 编译选项 ==========
       - name: Compile firmware
         run: |
-          make -j$(nproc) || make -j1 V=s
+          # 使用多核编译，失败时使用单核详细模式
+          make -j$(($(nproc)+1)) || make -j1 V=s
+          
           echo "======================="
           echo "Space usage:"
           echo "======================="
@@ -82,26 +115,16 @@ jobs:
 
       - name: Prepare artifact
         run: |
-          mkdir -p ./artifact/package
-          mkdir -p ./artifact/buildinfo
-          rm -rf $(find ./bin/targets/ -type d -name "packages")
-          cp -rf $(find ./bin/packages/ -type f -name "*.ipk") ./artifact/package/
-          cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/
+          mkdir -p ./artifact
+          # 复制所有固件文件
+          cp -rf $(find ./bin/targets/ -type f $ -name "*.bin" -o -name "*.img" -o -name "*.gz" $) ./artifact/
+          # 复制所有IPK插件
+          cp -rf $(find ./bin/packages/ -type f -name "*.ipk") ./artifact/
+          # 复制编译信息
+          cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/
 
-      - name: Upload buildinfo
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_buildinfo
-          path: ./artifact/buildinfo/
-
-      - name: Upload package
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_package
-          path: ./artifact/package/
-
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_firmware
-          path: ./bin/targets/
+          name: OpenWrt_Artifacts_$(date +%Y%m%d)
+          path: ./artifact/
