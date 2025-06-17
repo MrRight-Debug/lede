@@ -1,14 +1,14 @@
-# 在env部分添加以下配置
+# 在文件顶部env部分添加：
 env:
   DEFAULT_IP: 192.168.50.1
-  DEFAULT_PWD: a5623141    # 管理密码
-  PPPOE_USER: 057179674959 # 宽带账号
-  PPPOE_PASS: 760551       # 宽带密码
+  DEFAULT_PWD: a5623141
+  PPPOE_USER: 057179674959
+  PPPOE_PASS: 760551
   TARGET: x86
   SUBTARGET: 64
   PROFILE: generic
 
-# 在"Apply custom configurations"步骤中添加：
+# 在"Apply custom configurations"步骤中替换为：
 - name: Apply custom configurations
   run: |
     # 修改默认IP和管理密码
@@ -17,7 +17,6 @@ env:
     
     # 添加第三方插件源
     echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> feeds.conf.default
-    echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall" >> feeds.conf.default
     echo "src-git openclash https://github.com/vernesong/OpenClash" >> feeds.conf.default
     echo "src-git vlmcsd https://github.com/cokebar/openwrt-vlmcsd" >> feeds.conf.default
     
@@ -81,7 +80,7 @@ config internal 'themes'
         option Alpha '/luci-static/alpha'
 EOF
 
-# 在"Apply custom .config"步骤中添加：
+# 在"Apply custom .config"步骤中替换为：
 - name: Apply custom .config
   run: |
     cat > .config <<EOF
